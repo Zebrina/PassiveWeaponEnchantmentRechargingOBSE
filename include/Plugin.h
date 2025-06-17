@@ -11,9 +11,7 @@ using namespace std::literals;
 
 namespace Plugin
 {
-    //inline constexpr auto MODNAME = PLUGIN_MODNAME;
-    //inline constexpr auto AUTHOR = PLUGIN_AUTHOR;
-    inline constexpr auto VERSION = plugin_version::make(1, 0, 1, 0);
+    inline constexpr auto VERSION = plugin_version::make(1, 1, 0, 0);
     inline constexpr auto INTERNALNAME = "PassiveWeaponEnchantmentRecharging"sv;
     inline constexpr auto CONFIGFILE = "OBSE\\Plugins\\PassiveWeaponEnchantmentRecharging.toml"sv;
 }

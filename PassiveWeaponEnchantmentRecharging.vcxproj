@@ -71,12 +71,12 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <LibraryPath>$(ProjectDir)..\obse64\build\obse64\obse64.dir\$(Configuration);$(ProjectDir)..\obse64\build\obse64\$(Configuration);$(ProjectDir)..\obse64\build\obse64\obse64_common\$(Configuration);$(ProjectDir)\vcpkg_installed\$(Platform)-windows\lib;$(ProjectDir)..\..\BGSScriptExtenderPluginTools\$(Platform)\$(Configuration);$(LibraryPath)</LibraryPath>
+    <LibraryPath>$(ProjectDir)..\obse64\build\obse64\obse64.dir\$(Configuration);$(ProjectDir)..\obse64\build\obse64\$(Configuration);$(ProjectDir)..\obse64\build\obse64\obse64_common\$(Configuration);$(ProjectDir)\vcpkg_installed\$(Platform)-windows\lib;$(LibraryPath)</LibraryPath>
     <IncludePath>include;$(IncludePath)</IncludePath>
     <SourcePath>source;$(SourcePath)</SourcePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <LibraryPath>$(ProjectDir)..\obse64\build\obse64\obse64.dir\$(Configuration);$(ProjectDir)..\obse64\build\obse64\$(Configuration);$(ProjectDir)..\obse64\build\obse64\obse64_common\$(Configuration);$(ProjectDir)\vcpkg_installed\$(Platform)-windows\lib;$(ProjectDir)..\..\BGSScriptExtenderPluginTools\$(Platform)\$(Configuration);$(LibraryPath)</LibraryPath>
+    <LibraryPath>$(ProjectDir)..\obse64\build\obse64\obse64.dir\$(Configuration);$(ProjectDir)..\obse64\build\obse64\$(Configuration);$(ProjectDir)..\obse64\build\obse64\obse64_common\$(Configuration);$(ProjectDir)\vcpkg_installed\$(Platform)-windows\lib;$(LibraryPath)</LibraryPath>
     <IncludePath>include;$(IncludePath)</IncludePath>
     <SourcePath>source;$(SourcePath)</SourcePath>
   </PropertyGroup>

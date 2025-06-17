@@ -26,8 +26,9 @@ static GameCalendar* gGameCalendar;
 static bool gPercentRecharge = false;
 static float gRechargeValuePerDay = 3200.0f;
 static uint64_t gRechargeInterval = 1000;
+static bool gRechargeFollowerWeapons = false;
 
-static void ActorRechargeWeapons(Actor* actor, float value)
+static void ActorRechargeWeapons(TESObjectREFR* actor, float value)
 {
     if (!actor)
         return;
@@ -41,6 +42,10 @@ static void ActorRechargeWeapons(Actor* actor, float value)
     BSSimpleList<InventoryEntry*>* inventoryList = containerChanges->GetObjList();
     if (!inventoryList)
         return;
+
+#ifndef NDEBUG
+    plugin_log::debug("Recharging {}'s weapon by {}"sv, actor->GetFullName()->name.m_data, value);
+#endif
 
     BSSimpleList<InventoryEntry*>::Node* inventoryChangesNode = &(inventoryList->node);
     while (true)
@@ -111,7 +116,28 @@ static uintptr_t RechargeHook(PlayerCharacter* player)
                 {
                     float rechargeValue = gameTimeElapsed * gRechargeValuePerDay;
                     if (rechargeValue > 0.0f)
+                    {
                         ActorRechargeWeapons(player, rechargeValue);
+
+                        if (gRechargeFollowerWeapons)
+                        {
+                            using Node = decltype(player->parentCell->objectList.node);
+                            Node& node = player->parentCell->objectList.node;
+                            if (node.m_data)
+                            {
+                                while (true)
+                                {
+                                    if (node.m_data != player && node.m_data->typeID == kFormType_ACHR)
+                                        ActorRechargeWeapons(node.m_data, rechargeValue);
+
+                                    if (node.m_next == nullptr)
+                                        break;
+
+                                    node = *node.m_next;
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -277,6 +303,7 @@ extern "C" __declspec(dllexport) bool __cdecl OBSEPlugin_Load(const OBSEInterfac
     gPercentRecharge = config.get(configSection, "bPercentRecharge"sv, false);
     gRechargeValuePerDay = config.get(configSection, "fRechargeValuePerDay"sv, 3200.0f);
     gRechargeInterval = config.get(configSection, "iRechargeInterval"sv, 1000);
+    gRechargeFollowerWeapons = config.get(configSection, "bRechargeFollowerWeapons", false);
 
     if (gRechargeValuePerDay <= 0.0f)
     {
@@ -286,6 +313,9 @@ extern "C" __declspec(dllexport) bool __cdecl OBSEPlugin_Load(const OBSEInterfac
 
     if (gPercentRecharge)
         plugin_log::info("Percent based recharge enabled. Recharge percent (over a day) is {:.2f}%"sv, gRechargeValuePerDay * 100.0f);
+
+    if (gRechargeFollowerWeapons)
+        plugin_log::info("Follower recharge enabled. I don't yet know how to identify followers so for now it will recharge all npcs in the same cell as the player."sv, gRechargeValuePerDay * 100.0f);
 
     constexpr const size_t trampolineSize = 32;
     gTrampoline.setBase(trampolineSize, trampolineInterface->AllocateFromBranchPool(obse->GetPluginHandle(), trampolineSize));
