@@ -1,103 +1,104 @@
-#include "obse64\PluginAPI.h"
-#include "obse64_common\obse64_version.h"
-#include "obse64_common\BranchTrampoline.h"
-#include "obse64\GameBSExtraData.h"
-#include "obse64\GameExtraData.h"
-#include "obse64\GameObjects.h"
-
-#include "Plugin.h"
-#include "TES.h"
+#include "OBSE/OBSE.h"
+#include "RE/Oblivion.h"
+#include <REL//REL.h>
 
 #include <BGSScriptExtenderPluginTools.h>
+#include <windows_lean_and_mean.h>
 
-#pragma comment(lib, "obse64_common.lib")
+#include "Plugin.h"
+
+#pragma comment(lib, "commonlibob64.lib")
 #pragma comment(lib, "BGSScriptExtenderPluginTools.lib")
 
-using UpdateFunction = uintptr_t(*)(PlayerCharacter*);
-using RemoveExtraDataFunction = void (*)(ExtraDataList* extraList, uint8_t type);
-using UpdateWeaponChargePercentFunction = void (*)(bool, float percent);
+using namespace RE;
 
-static BranchTrampoline gTrampoline;
+using UpdateFunction = uintptr_t(*)(PlayerCharacter*);
+//using RemoveExtraDataFunction = void (*)(ExtraDataList* extraList, uint8_t type);
+//using UpdateWeaponChargePercentFunction = void (*)(bool, float percent);
+
 static UpdateFunction HookedFunction;
-static UpdateWeaponChargePercentFunction UpdateWeaponChargePercent;
-static RemoveExtraDataFunction RemoveExtraData;
-static GameCalendar* gGameCalendar;
+//static UpdateWeaponChargePercentFunction UpdateWeaponChargePercent;
+//static RemoveExtraDataFunction RemoveExtraData;
+//static GameCalendar* gGameCalendar;
 
 static bool gPercentRecharge = false;
 static float gRechargeValuePerDay = 3200.0f;
 static uint64_t gRechargeInterval = 1000;
 static bool gRechargeFollowerWeapons = false;
 
+static void UpdateWeaponChargePercent(float percent)
+{
+    REL::Relocation<void(*)(bool, float)> func{ REL::ID(405125) };
+    func(true, percent);
+}
+
 static void ActorRechargeWeapons(TESObjectREFR* actor, float value)
 {
     if (!actor)
         return;
 
-    ExtraContainerChanges* containerChanges = actor->extraList.Get<ExtraContainerChanges>();
+    ExtraContainerChanges* containerChanges = actor->extra.GetExtraData<ExtraContainerChanges>();
     if (!containerChanges)
         return;
 
-    using InventoryEntry = ExtraContainerChanges::Entry;
-
-    BSSimpleList<InventoryEntry*>* inventoryList = containerChanges->GetObjList();
+    BSSimpleList<InventoryEntryData*>* inventoryList = containerChanges->GetObjectList();
     if (!inventoryList)
         return;
 
-#ifndef NDEBUG
-    plugin_log::debug("Recharging {}'s weapon by {}"sv, actor->GetFullName()->name.m_data, value);
-#endif
-
-    BSSimpleList<InventoryEntry*>::Node* inventoryChangesNode = &(inventoryList->node);
-    while (true)
+    for (auto entry : *inventoryList)
     {
-        InventoryEntry* entry = inventoryChangesNode->m_data;
-        if (entry->extraData && entry->type->typeID == kFormType_Weapon)
+        if (entry->extraData == nullptr || entry->object->GetFormType() != FormType::Weapon)
+            continue;
+
+        TESObjectWEAP* weapon = static_cast<TESObjectWEAP*>(entry->object);
+        if (weapon->formEnchanting == nullptr)
+            continue;
+
+        for (auto weaponExtra : *(entry->extraData))
         {
-            TESObjectWEAP* weapon = static_cast<TESObjectWEAP*>(entry->type);
-            if (weapon->enchantable.enchantItem)
-            {
-                BSSimpleList<ExtraDataList*>::Node* weaponChangesNode = &(entry->extraData->node);
-                while (true)
-                {
-                    ExtraDataList* weaponExtraList = weaponChangesNode->m_data;
-                    if (weaponExtraList)
-                    {
-                        BSExtraCharge* extraCharge = reinterpret_cast<BSExtraCharge*>(weaponExtraList->Get(kExtraData_Charge));
-                        if (extraCharge)
-                        {
-                            if (gPercentRecharge)
-                                extraCharge->charge += value * (float)weapon->enchantable.enchantment;
-                            else
-                                extraCharge->charge += value;
+            ExtraCharge* extraCharge = reinterpret_cast<ExtraCharge*>(weaponExtra->GetExtraData(ExtraDataType::Charge));
+            if (!extraCharge)
+                continue;
 
-                            if (extraCharge->charge >= weapon->enchantable.enchantment)
-                                RemoveExtraData(weaponExtraList, kExtraData_Charge);
+            if (gPercentRecharge)
+                extraCharge->charge += value * (float)weapon->amountOfEnchantment;
+            else
+                extraCharge->charge += value;
 
-                            if (weaponExtraList->Contains(kExtraData_Worn))
-                                UpdateWeaponChargePercent(true, std::min(1.0f, extraCharge->charge / (float)weapon->enchantable.enchantment));
+            if (extraCharge->charge >= weapon->amountOfEnchantment)
+                weaponExtra->RemoveExtra(ExtraDataType::Charge);
 
-                            break;
-                        }
-                    }
-
-                    if (weaponChangesNode->m_next == nullptr)
-                        break;
-
-                    weaponChangesNode = weaponChangesNode->m_next;
-                }
-            }
+            if (weaponExtra->HasExtraData(ExtraDataType::Worn))
+                UpdateWeaponChargePercent(std::min(1.0f, extraCharge->charge / (float)weapon->amountOfEnchantment));
         }
-
-        if (inventoryChangesNode->m_next == nullptr)
-            break;
-
-        inventoryChangesNode = inventoryChangesNode->m_next;
     }
+}
+
+static bool ActorIsFollowingPlayer(Actor* actor)
+{
+    if (actor->currentProcess == nullptr)
+        return false;
+
+    HighProcess* process = RE::oblivion_cast<HighProcess*, BaseProcess>(actor->currentProcess);
+    if (!process)
+        return false;
+
+    TESPackage* currentPackage = process->GetCurrentPackage();
+    if (!currentPackage)
+        return false;
+
+    constexpr const uint8_t PACKAGE_TYPE_FOLLOW = 1;
+    constexpr const uint32_t DEFENSIVE_COMBAT_FLAG = 0x00400000;
+
+    return currentPackage->procedureType == PACKAGE_PROCEDURE_TYPE::kFollowWithoutEscort &&
+           currentPackage->packData.packType == PACKAGE_TYPE_FOLLOW &&
+           (currentPackage->packData.packFlags & DEFENSIVE_COMBAT_FLAG) == DEFENSIVE_COMBAT_FLAG &&
+           currentPackage->packTarget->target == PlayerCharacter::GetSingleton();
 }
 
 static uintptr_t RechargeHook(PlayerCharacter* player)
 {
-    static ULONGLONG lastRechargeTime = 0;
+    static uint64_t lastRechargeTime = 0;
     static float lastRechargeGameTime = 0.0f;
     static TESObjectCELL* lastPlayerCell = nullptr;
 
@@ -105,10 +106,10 @@ static uintptr_t RechargeHook(PlayerCharacter* player)
 
     if (player->parentCell)
     {
-        ULONGLONG time = GetTickCount64();
+        uint64_t time = GetTickCount64();
         if (time - lastRechargeTime >= gRechargeInterval)
         {
-            float gameTime = gGameCalendar->GetGameTime();
+            float gameTime = GameCalendar::GetSingleton()->GetCurrentGameTime();
             if (gameTime > lastRechargeGameTime)
             {
                 float gameTimeElapsed = gameTime - lastRechargeGameTime;
@@ -121,20 +122,17 @@ static uintptr_t RechargeHook(PlayerCharacter* player)
 
                         if (gRechargeFollowerWeapons)
                         {
-                            using Node = decltype(player->parentCell->objectList.node);
-                            Node& node = player->parentCell->objectList.node;
-                            if (node.m_data)
+                            for (auto ref : player->parentCell->listReferences)
                             {
-                                while (true)
-                                {
-                                    if (node.m_data != player && node.m_data->typeID == kFormType_ACHR)
-                                        ActorRechargeWeapons(node.m_data, rechargeValue);
+                                if (ref->GetFormType() != FormType::ActorCharacter)
+                                    continue;
 
-                                    if (node.m_next == nullptr)
-                                        break;
+                                Character* character = static_cast<Character*>(ref);
+                                if (character->GetActorType() != ACTOR_TYPE::kNPC)
+                                    continue;
 
-                                    node = *node.m_next;
-                                }
+                                if (ActorIsFollowingPlayer(character))
+                                    ActorRechargeWeapons(ref, rechargeValue);
                             }
                         }
                     }
@@ -157,6 +155,7 @@ static bool ApplyPatch()
 
     namespace re = reverse_engineering;
 
+#if 0
     constexpr re::signature gameCalendar
     {
         // OblivionRemastered-Win64-Shipping.exe+68373F2 - 48 8D 0D BF1CC802     - lea rcx,[OblivionRemastered-Win64-Shipping.exe+94B90B8] { (1DC8AA85830) }
@@ -240,6 +239,7 @@ static bool ApplyPatch()
         return false;
 
     UpdateWeaponChargePercent = (UpdateWeaponChargePercentFunction)updateWeaponChargePercent.get_4byte_displacement("UpdateWeaponChargePercent function", 11);
+#endif
 
     constexpr re::signature noMenuUpdate
     {
@@ -263,33 +263,38 @@ static bool ApplyPatch()
     if (!noMenuUpdate)
         return false;
 
-    HookedFunction = (UpdateFunction)noMenuUpdate.get_4byte_displacement("update function", 24);
+    HookedFunction = (UpdateFunction)REL::GetTrampoline().write_call5(noMenuUpdate.get_address() + 23, (uintptr_t)RechargeHook);
 
-    if (!gTrampoline.write5Call((uintptr_t)noMenuUpdate.get_address() + 23, (uintptr_t)RechargeHook))
-        return false;
-
-    return true;
+    return HookedFunction;
 }
 
-extern "C" __declspec(dllexport) OBSEPluginVersionData OBSEPlugin_Version =
-{
-    OBSEPluginVersionData::kVersion,
-    Plugin::VERSION,
-    PLUGIN_MODNAME,
-    PLUGIN_AUTHOR,
-    OBSEPluginVersionData::kAddressIndependence_Signatures,
-    OBSEPluginVersionData::kStructureIndependence_NoStructs,
-    { },
-    0,
-    0, 0, 0	// Reserved
-};
+OBSE_PLUGIN_VERSION = []()
+    {
+        OBSE::PluginVersionData v{};
 
-extern "C" __declspec(dllexport) bool __cdecl OBSEPlugin_Load(const OBSEInterface* obse)
+        v.PluginVersion(Plugin::VERSION);
+        v.PluginName(Plugin::MODNAME);
+        v.AuthorName(Plugin::AUTHOR);
+        v.UsesAddressLibrary(true);
+        v.HasNoStructUse(true);
+        //v.UsesUpdatedStructs();
+        //v.CompatibleVersions({ OBSE::Version{ 0, 0, 0, 1 } });
+
+        return v;
+    }();
+
+OBSE_PLUGIN_LOAD(const OBSE::LoadInterface* obse)
 {
     if (!plugin_log::initialize(Plugin::INTERNALNAME))
         return false;
 
-    OBSETrampolineInterface* trampolineInterface = static_cast<OBSETrampolineInterface*>(obse->QueryInterface(kInterface_Trampoline));
+    OBSE::InitInfo info{};
+    info.log = false;
+    info.trampoline = true;
+    info.trampolineSize = 14;
+    OBSE::Init(obse, info);
+
+    OBSE::TrampolineInterface* trampolineInterface = static_cast<OBSE::TrampolineInterface*>(obse->QueryInterface(OBSE::LoadInterface::kTrampoline));
     if (!trampolineInterface)
     {
         plugin_log::err("Failed to query OBSE trampoline interface."sv);
@@ -313,12 +318,6 @@ extern "C" __declspec(dllexport) bool __cdecl OBSEPlugin_Load(const OBSEInterfac
 
     if (gPercentRecharge)
         plugin_log::info("Percent based recharge enabled. Recharge percent (over a day) is {:.2f}%"sv, gRechargeValuePerDay * 100.0f);
-
-    if (gRechargeFollowerWeapons)
-        plugin_log::info("Follower recharge enabled. I don't yet know how to identify followers so for now it will recharge all npcs in the same cell as the player."sv, gRechargeValuePerDay * 100.0f);
-
-    constexpr const size_t trampolineSize = 32;
-    gTrampoline.setBase(trampolineSize, trampolineInterface->AllocateFromBranchPool(obse->GetPluginHandle(), trampolineSize));
 
     bool success = ApplyPatch();
     if (success)
