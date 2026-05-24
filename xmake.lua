@@ -25,7 +25,7 @@ target("PassiveWeaponEnchantmentRecharging")
     add_deps("commonlibob64")
     add_deps("BGSScriptExtenderPluginTools")
 
-    add_files("source/**.cpp")
+    add_files("src/**.cpp")
     add_headerfiles("include/**.h")
     add_includedirs("include")
 

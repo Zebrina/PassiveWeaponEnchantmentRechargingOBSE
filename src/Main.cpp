@@ -41,7 +41,7 @@ static void ActorRechargeWeapons(TESObjectREFR* actor, float value)
     if (!containerChanges)
         return;
 
-    BSSimpleList<InventoryEntryData*>* inventoryList = containerChanges->GetObjectList();
+    BSSimpleList<ItemChange*>* inventoryList = containerChanges->GetItemChanges();
     if (!inventoryList)
         return;
 
@@ -56,7 +56,7 @@ static void ActorRechargeWeapons(TESObjectREFR* actor, float value)
 
         for (auto weaponExtra : *(entry->extraData))
         {
-            ExtraCharge* extraCharge = reinterpret_cast<ExtraCharge*>(weaponExtra->GetExtraData(ExtraDataType::Charge));
+            ExtraCharge* extraCharge = reinterpret_cast<ExtraCharge*>(weaponExtra->GetExtraData(EXTRA_DATA_TYPE::Charge));
             if (!extraCharge)
                 continue;
 
@@ -66,9 +66,9 @@ static void ActorRechargeWeapons(TESObjectREFR* actor, float value)
                 extraCharge->charge += value;
 
             if (extraCharge->charge >= weapon->amountOfEnchantment)
-                weaponExtra->RemoveExtra(ExtraDataType::Charge);
+                weaponExtra->RemoveExtra(EXTRA_DATA_TYPE::Charge);
 
-            if (weaponExtra->HasExtraData(ExtraDataType::Worn))
+            if (weaponExtra->GetExtraData(EXTRA_DATA_TYPE::Worn))
                 UpdateWeaponChargePercent(std::min(1.0f, extraCharge->charge / (float)weapon->amountOfEnchantment));
         }
     }
@@ -109,7 +109,7 @@ static uintptr_t RechargeHook(PlayerCharacter* player)
         uint64_t time = GetTickCount64();
         if (time - lastRechargeTime >= gRechargeInterval)
         {
-            float gameTime = GameCalendar::GetSingleton()->GetCurrentGameTime();
+            float gameTime = Calendar::GetSingleton()->GetTime();
             if (gameTime > lastRechargeGameTime)
             {
                 float gameTimeElapsed = gameTime - lastRechargeGameTime;

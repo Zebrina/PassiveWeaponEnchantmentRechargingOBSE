@@ -5,6 +5,7 @@
 
 ## Xmake
 vsxmake2022/
+packaged/
 
 # User-specific files
 *.rsuser
